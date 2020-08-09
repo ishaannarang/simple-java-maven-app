@@ -1,30 +1,108 @@
-pipeline {
-    agent {
-        docker {
-            image 'maven:3-alpine'
-            args '-v /root/.m2:/root/.m2'
-        }
-    }
-    stages {
-        stage('Build') {
-            steps {
-                sh 'mvn -B -DskipTests clean package'
-            }
-        }
-        stage('Test') {
-            steps {
-                sh 'mvn test'
-            }
-            post {
-                always {
-                    junit 'target/surefire-reports/*.xml'
-                }
-            }
-        }
-        stage('Deliver') {
-            steps {
-                sh './jenkins/scripts/deliver.sh'
-            }
-        }
-    }
+pipeline { 
+
+environment {
+
+    registry = "ishannarang511/java-app"
+    registryCredential = 'dockerHubCredentials'
+    dockerImage = ''
+  }
+
+agent any
+stages {
+		 
+			 //Clean up old builds
+				stage('Clean-up')
+				{
+                 steps {
+
+ 
+									sh "echo Pre-Build cleanup Stage starting"
+									sh '''
+										cd "$WORKSPACE"
+										rm -fr *
+									'''
+									sh "echo done"
+ }
 }
+
+			    stage('Pre-build')
+{
+
+			                steps{
+
+			     
+									
+									 
+									git branch: 'master', credentialsId: 'gitHubCredentials', url: 'https://github.com/ishaannarang/simple-java-maven-app'
+									
+									script {			
+									env.JAVA_HOME="${tool 'Java8'}"
+									env.PATH="${env.JAVA_HOME}/bin:${env.PATH}"
+									sh "echo ${env.PATH}"
+									sh "echo done ${env.JOB_NAME}"
+
+									}
+				}
+}
+		
+				stage('Build') { 
+
+							steps{
+
+								sh "echo Compile Code Build Stage starting" 
+								withEnv(["PATH+MAVEN=${tool 'maven'}/bin"])
+								{   
+									sh "mvn -B -DskipTests clean package"
+								}
+				}
+
+				}
+				stage('Test') {
+                                steps {
+                                       sh "mvn test"
+                                }
+                                post {
+                                     always {
+                                          junit "target/surefire-reports/*.xml"
+                                     }
+                                     }
+  }
+
+            	stage('Build image') {
+    							steps{
+    							  script {
+    							     sh "mv $WORKSPACE/target/my-app-1.0-SNAPSHOT.jar $WORKSPACE"
+
+       								 dockerImage = docker.build registry + ":$BUILD_NUMBER"
+      }
+    }
+  }
+  				stage('Push Image') {
+      							steps{
+        						  script {
+          							docker.withRegistry( '', registryCredential ) {
+            						dockerImage.push()
+          }
+        }
+      }
+    }
+    			stage('Remove Unused docker image') {
+    						   steps{
+                                   sh "docker rmi $registry:$BUILD_NUMBER"
+      }
+    }
+
+
+
+                stage('Deliver') { 
+                              steps {
+                                 
+                                 sh "sed -i 's/BUILD_NUMBER/$BUILD_NUMBER/g' $WORKSPACE/my-app.yaml"
+                                 sh "chmod 777 deliver.sh"
+                                 sh "./deliver.sh"
+                                 
+        }
+        }
+        }
+
+        }
